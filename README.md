@@ -1,36 +1,137 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Next.js + PostgreSQL base template
 
-## Getting Started
+A copy-and-go starter: Next.js 16 (App Router, Turbopack, standalone), Tailwind v4,
+shadcn/ui, Prisma 7 (driver adapter, no query engine), typed env, and quality tooling.
+Bring your own Postgres — local Docker **or** Supabase/Neon/etc.
 
-First, run the development server:
+## What's pre-installed
+
+- **Next.js 16** — App Router, React 19, `output: 'standalone'`, `trailingSlash: true`
+- **Tailwind CSS v4** + **shadcn/ui** (`button`, `card`, `input`, `label`) in `src/components/ui/`
+- **Prisma 7** — ESM `prisma-client` generator + `@prisma/adapter-pg` driver adapter
+- **Typed env** via `zod` (`src/lib/env.ts`) — fails fast on a missing/malformed `DATABASE_URL`
+- **Prettier**, **ESLint**, **Husky**, **lint-staged**, **Prisma Studio**
+- Sample `Todo` model + `/api/health` and `/api/todos` routes to prove the wiring
+- `Dockerfile` (standalone) + `docker-compose.yml` (local Postgres)
+
+## AI onboarding
+
+This template ships agent guidance that an AI assistant picks up automatically:
+
+- **`AGENTS.md`** — editor-agnostic orientation (what's pre-wired, commands, conventions, env).
+  Loaded as instructions by opencode, Claude Code, Cursor, etc.
+- **`.opencode/skills/db-prisma/SKILL.md`** — an opencode project skill with the Prisma change-loop
+  and the Prisma 7 / `@prisma/adapter-pg` gotchas specific to this template. Triggers on schema /
+  migration / client / DB-provider keywords.
+
+To add more skills, drop a `SKILL.md` (with `name` + `description` frontmatter) into
+`.opencode/skills/<name>/`. opencode auto-discovers `.opencode/skills/**/SKILL.md`; no config needed.
+
+## Prerequisites
+
+- Node.js >= 18.18 (built/tested on 20/22/24)
+- pnpm (`corepack enable`)
+- A Postgres database — pick **Track A** or **Track B** below
+
+## Quick start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env        # then edit DATABASE_URL (see Track A or B)
+pnpm install                # also runs `prisma generate` (postinstall)
+pnpm db:migrate             # create + apply the initial migration
+pnpm dev                    # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Verify the DB wiring:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+curl http://localhost:3000/api/health/
+curl http://localhost:3000/api/todos/
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Database setup
 
-## Learn More
+> The template is provider-agnostic: Prisma + `DATABASE_URL` is the only coupling.
+> Local Docker and Supabase are documented below; Neon, Railway, Render, etc. work the same way.
 
-To learn more about Next.js, take a look at the following resources:
+### Track A — local Postgres via Docker (recommended quick-start)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Starts Postgres 16 with a persistent volume and a healthcheck:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+docker compose up -d db
+```
 
-## Deploy on Vercel
+Use this in `.env`:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```env
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/basedb?schema=public"
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Stop: `docker compose down` (keeps data). Wipe data: `docker compose down -v`.
+
+### Track B — Supabase (managed Postgres)
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. Project Settings → Database → **Connection string**.
+3. Use the **direct connection** (port `5432`) for migrations:
+
+```env
+DATABASE_URL="postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?schema=public"
+```
+
+Gotchas:
+
+- **Migrations** (`prisma migrate dev`) must use the **direct** connection (port 5432), not the pooler.
+- **Runtime** (serverless/edge) can use the **pooler** (Transaction mode, port `6543`, add
+  `?pgbouncer=true&connection_limit=1`). Keep the direct URL in `.env` for the CLI; switch to the
+  pooler only for deployed runtime if you hit connection limits.
+- Prisma's driver adapter (`@prisma/adapter-pg`) works on the edge, so this template is edge-ready.
+
+## Scripts
+
+| Script | Description |
+| --- | --- |
+| `pnpm dev` | Dev server |
+| `pnpm build` | Production build → `.next/standalone` |
+| `pnpm start` | Serve the production build |
+| `pnpm lint` / `pnpm typecheck` | ESLint / `tsc --noEmit` |
+| `pnpm format` | Prettier write |
+| `pnpm validate` | format + lint + typecheck |
+| `pnpm db:generate` | Regenerate the Prisma client |
+| `pnpm db:migrate` | Create/apply a migration |
+| `pnpm db:push` | Push schema without a migration |
+| `pnpm db:studio` | Prisma Studio GUI |
+
+## Project structure
+
+```
+prisma/
+  schema.prisma        # models + datasource (provider=postgresql)
+prisma.config.ts        # schema/migrations paths, datasource.url = DATABASE_URL
+generated/prisma/       # gitignored client output (recreated by `prisma generate`)
+src/
+  app/
+    api/health/route.ts # GET /api/health/
+    api/todos/route.ts  # GET/POST /api/todos/  (sample CRUD)
+    error.tsx, loading.tsx, not-found.tsx, page.tsx, layout.tsx, globals.css
+  components/ui/        # shadcn components (button, card, input, label)
+  lib/
+    env.ts              # zod-validated env (import `env` from here)
+    prisma.ts           # PrismaClient singleton (PrismaPg adapter)
+Dockerfile              # standalone multi-stage build
+docker-compose.yml      # local Postgres (db service)
+.env.example            # documented env template
+```
+
+## Notes
+
+- The `Todo` model and `/api/todos` route are **sample placeholders** — delete them when you
+  start your real schema.
+- The generated Prisma client lives in `./generated/prisma` (gitignored). It is recreated on
+  `pnpm install` (postinstall) and `pnpm db:generate`. Import it as
+  `from "../../generated/prisma/client"` (it is a file, not a directory with an index).
+- Env is validated at boot via `src/lib/env.ts`; `pnpm build` requires a valid `DATABASE_URL`.
+- To add UI components: `pnpm dlx shadcn@latest add <name>`.
+- To create a production image: `docker build -t nextjs-base .`
+  (requires the build to generate the Prisma client, so keep `prisma/` in the build context).
