@@ -113,6 +113,18 @@ function rewriteHtml(html: string, upstreamUrl: string, token: string): string {
       `${open}${rewriteCss(body, upstreamUrl, token)}${close}`,
   );
 
+  // Rewrite url() inside inline style="..." attributes (background-image, etc.).
+  out = out.replace(
+    /\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
+    (m, dq, sq) => {
+      const val = dq ?? sq ?? "";
+      if (!/url\(/i.test(val)) return m;
+      const rewritten = rewriteCss(val, upstreamUrl, token);
+      if (dq !== undefined) return `style="${rewritten}"`;
+      return `style='${rewritten}'`;
+    },
+  );
+
   const annotator = `<script src="/_annotator/client.js" data-token="${token}" data-upstream-url="${encodeURIComponent(
     upstreamUrl,
   )}"></script><link rel="stylesheet" href="/_annotator/overlay.css" />`;
@@ -159,10 +171,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   let upstream: Response;
   try {
     upstream = await fetch(target, {
-      headers: {
-        "user-agent": "Mozilla/5.0 (compatible; FeedbackReviewer/1.0)",
-        accept: request.headers.get("accept") ?? "*/*",
-      },
+      headers: upstreamHeaders(target, request),
       redirect: "follow",
     });
   } catch (e) {
@@ -229,5 +238,32 @@ function baseHeaders(contentType: string): Headers {
   const h = new Headers();
   h.set("content-type", contentType);
   h.set("cache-control", "no-store");
+  return h;
+}
+
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+
+function upstreamHeaders(target: string, request: NextRequest): Headers {
+  let origin: string;
+  try {
+    origin = new URL(target).origin;
+  } catch {
+    origin = target;
+  }
+  const h = new Headers();
+  // Use a realistic browser User-Agent — many CDNs/servers reject custom UAs.
+  h.set("user-agent", BROWSER_UA);
+  // Send a Referer pointing at the upstream origin so hotlink-protected CDNs
+  // (which check Referer) accept the image request.
+  h.set("referer", origin + "/");
+  h.set("origin", origin);
+  // Forward the browser's Accept so content negotiation (webp/avif) still works.
+  h.set("accept", request.headers.get("accept") ?? "*/*");
+  h.set("accept-language", request.headers.get("accept-language") ?? "en-US,en;q=0.9");
+  h.set("sec-fetch-dest", "document");
+  h.set("sec-fetch-mode", "navigate");
+  h.set("sec-fetch-site", "same-origin");
   return h;
 }
