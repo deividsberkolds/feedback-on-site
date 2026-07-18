@@ -13,9 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Next.js + PostgreSQL base template",
-  description:
-    "A base Next.js project with Prisma, Tailwind v4, and shadcn/ui.",
+  title: "Feedback on Site",
+  description: "Collect pinpoint feedback on any web page from your clients.",
 };
 
 export default function RootLayout({
